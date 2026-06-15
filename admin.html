@@ -64,6 +64,14 @@
   .hidden{ display:none; }
   .download-row{ display:flex; gap:14px; align-items:center; }
   .download-row .fname{ font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--muted2); }
+
+  .pub-box{ border:1px solid var(--panel-border); border-radius:12px; padding:16px 18px; margin-bottom:14px; background:var(--bg2); }
+  .pub-box:last-child{ margin-bottom:0; }
+  .pub-box h3{ font-family:'Rajdhani',sans-serif; font-weight:800; font-size:15px; letter-spacing:1px; text-transform:uppercase; color:var(--text); margin-bottom:6px; }
+  .pub-box p{ font-size:12.5px; color:var(--muted); line-height:1.6; margin-bottom:10px; }
+  .pub-box input[type=text], .pub-box input[type=password]{ width:100%; background:var(--panel); border:2px solid var(--panel-border); border-radius:8px; color:var(--text);
+    font-family:'JetBrains Mono',monospace; font-weight:600; font-size:13px; padding:8px 10px; }
+  .log .succ{ color:var(--green); }
 </style>
 </head>
 <body>
@@ -121,10 +129,39 @@
   </div>
 
   <div class="panel hidden" id="downloadPanel">
-    <h2>4 &middot; Export</h2>
-    <div class="download-row">
-      <button class="btn primary" id="downloadBtn">&#11015; Download data.json</button>
-      <span class="fname" id="fnameInfo"></span>
+    <h2>4 &middot; Publish</h2>
+
+    <div class="pub-box">
+      <h3>Option A &mdash; Auto-publish to GitHub (recommended)</h3>
+      <p>This commits <code>data.json</code> straight to your repo via the GitHub API. The live dashboard updates automatically (~30&ndash;60s, no download/upload needed).</p>
+      <div class="row">
+        <div class="field"><label>Owner / Org</label><input type="text" id="ghOwner" placeholder="usama6355" value="usama6355"></div>
+        <div class="field"><label>Repository</label><input type="text" id="ghRepo" placeholder="Daily-Incidents-Dashboard" value="Daily-Incidents-Dashboard"></div>
+        <div class="field"><label>Branch</label><input type="text" id="ghBranch" placeholder="main" value="main"></div>
+        <div class="field"><label>File path</label><input type="text" id="ghPath" placeholder="data.json" value="data.json"></div>
+      </div>
+      <div class="row" style="margin-top:10px;">
+        <div class="field" style="flex:1; min-width:280px;">
+          <label>Personal Access Token (fine-grained, Contents: Read &amp; write on this repo)</label>
+          <input type="password" id="ghToken" placeholder="github_pat_...">
+        </div>
+        <div class="field" style="flex-direction:row; align-items:center; gap:8px; padding-bottom:8px;">
+          <input type="checkbox" id="ghRemember" style="width:16px;height:16px;">
+          <label style="text-transform:none; font-size:12px; font-weight:600;" for="ghRemember">Remember token on this device</label>
+        </div>
+      </div>
+      <p style="font-size:11.5px;">Create one at <code>github.com/settings/personal-access-tokens/new</code> &rarr; Repository access: only this repo &rarr; Permissions: Contents = Read and write. The token is stored only in your browser (optionally, if you check "Remember"); it is never sent anywhere except GitHub's API.</p>
+      <button class="btn primary" id="publishBtn">&#128640; Publish to Dashboard</button>
+      <div class="log hidden" id="publishLog" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="pub-box">
+      <h3>Option B &mdash; Manual download</h3>
+      <p>Download <code>data.json</code> and upload/commit it into the repo yourself.</p>
+      <div class="download-row">
+        <button class="btn" id="downloadBtn">&#11015; Download data.json</button>
+        <span class="fname" id="fnameInfo"></span>
+      </div>
     </div>
   </div>
 
@@ -373,6 +410,98 @@ document.getElementById('downloadBtn').addEventListener('click', ()=>{
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
   URL.revokeObjectURL(url);
   document.getElementById('fnameInfo').textContent = `data.json — ${new Date().toLocaleString()} — place this file next to index.html`;
+});
+
+// ===== restore remembered GitHub publish settings =====
+(function restoreGhSettings(){
+  try{
+    const saved = JSON.parse(localStorage.getItem('ohb_gh_settings')||'null');
+    if(saved){
+      if(saved.owner) document.getElementById('ghOwner').value = saved.owner;
+      if(saved.repo) document.getElementById('ghRepo').value = saved.repo;
+      if(saved.branch) document.getElementById('ghBranch').value = saved.branch;
+      if(saved.path) document.getElementById('ghPath').value = saved.path;
+      if(saved.token){ document.getElementById('ghToken').value = saved.token; document.getElementById('ghRemember').checked = true; }
+    }
+  }catch(e){}
+})();
+
+// ===== publish to GitHub via REST API =====
+function pubLog(msg, cls){
+  const box = document.getElementById('publishLog');
+  box.classList.remove('hidden');
+  box.innerHTML += `<span class="${cls||''}">${msg}</span>\n`;
+  box.scrollTop = box.scrollHeight;
+}
+
+document.getElementById('publishBtn').addEventListener('click', async ()=>{
+  if(!resultData){ alert('Process a file first.'); return; }
+  const owner = document.getElementById('ghOwner').value.trim();
+  const repo = document.getElementById('ghRepo').value.trim();
+  const branch = document.getElementById('ghBranch').value.trim() || 'main';
+  const path = document.getElementById('ghPath').value.trim() || 'data.json';
+  const token = document.getElementById('ghToken').value.trim();
+  const remember = document.getElementById('ghRemember').checked;
+
+  if(!owner || !repo || !token){ alert('Owner, repository and token are required.'); return; }
+
+  if(remember){
+    localStorage.setItem('ohb_gh_settings', JSON.stringify({owner,repo,branch,path,token}));
+  } else {
+    localStorage.removeItem('ohb_gh_settings');
+  }
+
+  document.getElementById('publishLog').innerHTML = '';
+  const btn = document.getElementById('publishBtn');
+  btn.disabled = true;
+  pubLog(`Publishing to ${owner}/${repo}@${branch}/${path} ...`, 'hd');
+
+  const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+  const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' };
+
+  try{
+    // 1. get current file SHA (if it exists) so we update rather than create
+    let sha = null;
+    const getRes = await fetch(`${apiUrl}?ref=${branch}`, {headers});
+    if(getRes.status === 200){
+      const info = await getRes.json();
+      sha = info.sha;
+      pubLog(`Found existing ${path} (sha ${sha.slice(0,7)}...) — will update.`);
+    } else if(getRes.status === 404){
+      pubLog(`${path} does not exist yet — will create it.`);
+    } else {
+      const errBody = await getRes.json().catch(()=>({}));
+      throw new Error(`GET failed (${getRes.status}): ${errBody.message||getRes.statusText}`);
+    }
+
+    // 2. base64-encode the JSON (UTF-8 safe)
+    const jsonStr = JSON.stringify(resultData, null, 2);
+    const bytes = new TextEncoder().encode(jsonStr);
+    let binary = ''; bytes.forEach(b=> binary += String.fromCharCode(b));
+    const content = btoa(binary);
+
+    // 3. PUT (create or update)
+    const body = {
+      message: `Update incident data — ${new Date().toISOString()}`,
+      content, branch
+    };
+    if(sha) body.sha = sha;
+
+    const putRes = await fetch(apiUrl, { method:'PUT', headers:{...headers,'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const putData = await putRes.json();
+    if(!putRes.ok) throw new Error(`PUT failed (${putRes.status}): ${putData.message||putRes.statusText}`);
+
+    pubLog(`Committed successfully: ${putData.commit?.sha?.slice(0,7) || ''}`, 'succ');
+    pubLog(`GitHub Pages will rebuild in ~30-60s.`, 'succ');
+    pubLog(`Dashboard: https://${owner}.github.io/${repo}/`, 'ok');
+  }catch(err){
+    pubLog(`ERROR: ${err.message}`, 'err');
+    if(String(err.message).includes('401') || String(err.message).includes('403')){
+      pubLog('Check that the token is valid and has "Contents: Read and write" permission on this repository.', 'warn');
+    }
+  }finally{
+    btn.disabled = false;
+  }
 });
 </script>
 </body>
