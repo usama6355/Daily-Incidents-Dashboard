@@ -485,7 +485,7 @@ function init(){
 // ===== load data: try live data.json, fall back to embedded sample =====
 (async function(){
   try{
-    const res = await fetch('./data.json', {cache:'no-store'});
+    const res = await fetch(`./data.json?v=${Date.now()}`, {cache:'no-store'});
     if(!res.ok) throw new Error('no data.json');
     DATA = await res.json();
     console.log('Loaded live data.json');
