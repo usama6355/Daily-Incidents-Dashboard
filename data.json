@@ -1121,7 +1121,7 @@
           "priority": "P3",
           "impact": "NSA",
           "sla": "Yes",
-          "age": 54.5,
+          "age": 54.6,
           "owner": "CCTV",
           "svc": "CCTV",
           "created": "22-Apr 02:49",
@@ -2897,7 +2897,7 @@
           "priority": "P3",
           "impact": "NSA",
           "sla": "Yes",
-          "age": 54.5,
+          "age": 54.6,
           "owner": "CCTV",
           "svc": "CCTV",
           "created": "22-Apr 02:49",
@@ -3146,7 +3146,7 @@
       "North",
       "Northern Border"
     ],
-    "generated_at": "2026-06-15T13:00:18.405Z",
+    "generated_at": "2026-06-15T13:02:22.894Z",
     "source_total_rows": 128,
     "open_total": 101,
     "resolved_total": 27
