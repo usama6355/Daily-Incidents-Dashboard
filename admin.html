@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -225,31 +224,41 @@ document.getElementById('goBtn').addEventListener('click', async ()=>{
 });
 
 // ===== GitHub publish =====
+async function getSha(apiUrl, branch, headers){
+  const res = await fetch(`${apiUrl}?ref=${branch}&t=${Date.now()}`, {headers, cache:'no-store'});
+  if(res.status === 200) return (await res.json()).sha;
+  if(res.status === 404) return null;
+  const e = await res.json().catch(()=>({}));
+  throw new Error(`GET ${res.status}: ${e.message||res.statusText}`);
+}
+
 async function publishToGitHub(resultData, conn){
   const {owner, repo, branch, path, token} = conn;
   const apiUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
   const headers = { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json' };
-
-  let sha = null;
-  const getRes = await fetch(`${apiUrl}?ref=${branch}`, {headers});
-  if(getRes.status === 200){ sha = (await getRes.json()).sha; }
-  else if(getRes.status !== 404){
-    const e = await getRes.json().catch(()=>({}));
-    throw new Error(`GET ${getRes.status}: ${e.message||getRes.statusText}`);
-  }
 
   const jsonStr = JSON.stringify(resultData, null, 2);
   const bytes = new TextEncoder().encode(jsonStr);
   let binary = ''; bytes.forEach(b=> binary += String.fromCharCode(b));
   const content = btoa(binary);
 
-  const body = { message: `Update incident data — ${new Date().toISOString()}`, content, branch };
-  if(sha) body.sha = sha;
+  let sha = await getSha(apiUrl, branch, headers);
 
-  const putRes = await fetch(apiUrl, { method:'PUT', headers:{...headers,'Content-Type':'application/json'}, body: JSON.stringify(body) });
-  const putData = await putRes.json();
-  if(!putRes.ok){
+  for(let attempt=1; attempt<=2; attempt++){
+    const body = { message: `Update incident data — ${new Date().toISOString()}`, content, branch };
+    if(sha) body.sha = sha;
+
+    const putRes = await fetch(apiUrl, { method:'PUT', headers:{...headers,'Content-Type':'application/json'}, body: JSON.stringify(body) });
+    const putData = await putRes.json();
+    if(putRes.ok) return;
+
     if(putRes.status===401||putRes.status===403) throw new Error(`${putRes.status} — token invalid or missing "Contents: Read & write" permission`);
+
+    if(putRes.status===409 && attempt===1){
+      // stale sha — refetch and retry once
+      sha = await getSha(apiUrl, branch, headers);
+      continue;
+    }
     throw new Error(`PUT ${putRes.status}: ${putData.message||putRes.statusText}`);
   }
 }
